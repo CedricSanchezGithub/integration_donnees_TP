@@ -1,0 +1,27 @@
+# --- Python & Poetry ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# --- Environnement & Secrets ---
+.env
+.DS_Store
+
+# --- IDE ---
+.idea/
+.vscode/
+
+# --- Spark ---
+spark-warehouse/
+metastore_db/
+derby.log
+
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
