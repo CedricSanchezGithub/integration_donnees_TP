@@ -23,3 +23,6 @@ MYSQL_CONFIG = {
     "password": "root",
     "driver": "com.mysql.cj.jdbc.Driver"
 }
+
+DEV_MODE = True
+SAMPLE_FRACTION = 0.01

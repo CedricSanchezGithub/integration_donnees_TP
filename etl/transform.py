@@ -1,12 +1,17 @@
 from pyspark.sql import DataFrame, Window
 from pyspark.sql.functions import col, trim, from_unixtime, sha2, concat_ws, date_format, when, isnan, row_number
+from etl.shared.config import DEV_MODE, SAMPLE_FRACTION
 
 
 def clean_data(df_raw: DataFrame) -> DataFrame:
     """Applique le nettoyage Silver (Typage, Trim) et DÉDOUBLONNE."""
+
     print("🧹 Nettoyage des données (Silver)...")
 
-    # 1. Nettoyage et Typage
+    if DEV_MODE:
+        print(f"📊 Mode DEV: Échantillonnage de {SAMPLE_FRACTION * 100:.1f}% des données")
+        df_raw = df_raw.sample(withReplacement=False, fraction=SAMPLE_FRACTION, seed=42)
+
     df_clean = df_raw \
         .select(
         trim(col("code")).alias("code"),
