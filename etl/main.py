@@ -1,3 +1,4 @@
+import time
 from etl.shared.utils import get_spark_session
 from etl.extract import extract_data
 from etl.transform import clean_data, add_technical_hash, prepare_fact_table
@@ -5,6 +6,7 @@ from etl.load import init_database, load_dimension_scd2, load_facts, fetch_produ
 
 
 def main():
+    start_time = time.time()
     print("🚀 Démarrage du Pipeline ETL OpenFoodFacts (Mode SCD2)")
 
     try:
@@ -30,7 +32,8 @@ def main():
         df_facts = prepare_fact_table(df_hashed, df_keys)
         load_facts(df_facts)
 
-        print("✅ Pipeline terminé avec succès.")
+        elapsed_time = time.time() - start_time
+        print(f"✅ Pipeline terminé avec succès en {elapsed_time:.2f}s.")
     except Exception as e:
         print(f"❌ Erreur critique dans le pipeline : {e}")
         raise

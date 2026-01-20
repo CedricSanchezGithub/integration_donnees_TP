@@ -1,17 +1,17 @@
-from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, trim, from_unixtime, sha2, concat_ws, date_format, when, isnan
+from pyspark.sql import DataFrame, Window
+from pyspark.sql.functions import col, trim, from_unixtime, sha2, concat_ws, date_format, when, isnan, row_number
+
 
 def clean_data(df_raw: DataFrame) -> DataFrame:
-    """Applique le nettoyage Silver (Typage, Trim)."""
+    """Applique le nettoyage Silver (Typage, Trim) et DÉDOUBLONNE."""
     print("🧹 Nettoyage des données (Silver)...")
 
-    # TODO: En prod, retirer le sample ou le gérer via config
-    # df_raw = df_raw.sample(withReplacement=False, fraction=0.01, seed=42)
-
-    df_cleaned = df_raw \
+    # 1. Nettoyage et Typage
+    df_clean = df_raw \
         .select(
         trim(col("code")).alias("code"),
         trim(col("product_name")).alias("product_name"),
+        col("last_modified_t"),
         from_unixtime(col("last_modified_t")).cast("timestamp").alias("last_modified_ts"),
         from_unixtime(col("created_t")).cast("timestamp").alias("created_ts"),
         col("countries_tags"),
@@ -27,8 +27,13 @@ def clean_data(df_raw: DataFrame) -> DataFrame:
     ) \
         .filter(col("code").isNotNull() & (col("code") != ""))
 
-    print(f"✅ Nettoyage terminé.")
-    return df_cleaned
+    window_spec = Window.partitionBy("code").orderBy(col("last_modified_t").desc())
+
+    df_deduplicated = df_clean.withColumn("rn", row_number().over(window_spec)) \
+        .filter(col("rn") == 1) \
+        .drop("rn", "last_modified_t")
+
+    return df_deduplicated
 
 
 def add_technical_hash(df_silver: DataFrame) -> DataFrame:
@@ -45,6 +50,7 @@ def add_technical_hash(df_silver: DataFrame) -> DataFrame:
         "row_hash",
         sha2(concat_ws("||", *[col(c) for c in columns_to_hash]), 256)
     )
+
 
 def prepare_fact_table(df_hashed: DataFrame, df_dim_products: DataFrame) -> DataFrame:
     """Prépare la table de faits en joignant avec la dimension et en nettoyant les métriques."""
