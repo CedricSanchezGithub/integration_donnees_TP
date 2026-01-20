@@ -6,7 +6,7 @@ from pyspark.sql.functions import col, lit, current_timestamp
 from etl.shared.config import MYSQL_CONFIG
 
 
-def init_database():
+def init_database(reset=False):
     """Crée les tables (DDL) avec un mécanisme de Retry."""
     print("🛠 Initialisation de la BDD...")
 
@@ -37,8 +37,9 @@ def init_database():
     cursor.execute("SET GLOBAL max_allowed_packet=67108864")
 
     # NOTE: En SCD2 réel, on NE DROP PAS les tables à chaque fois
-    cursor.execute("DROP TABLE IF EXISTS fact_nutrition_snapshot")
-    cursor.execute("DROP TABLE IF EXISTS dim_product")
+    if reset:
+        cursor.execute("DROP TABLE IF EXISTS fact_nutrition_snapshot")
+        cursor.execute("DROP TABLE IF EXISTS dim_product")
 
     # DDL - Dimension Produit
     cursor.execute("""
@@ -193,9 +194,8 @@ def load_facts(df: DataFrame):
     """Charge la table de faits."""
     print("🚚 Chargement de fact_nutrition_snapshot...")
     try:
-        count = df.count()
         _write_jdbc(df, "fact_nutrition_snapshot")
-        print(f"✅ {count} faits insérés dans fact_nutrition_snapshot.")
+        print(f"✅ Faits insérés dans fact_nutrition_snapshot.")
     except Exception as e:
         print(f"❌ Erreur lors du chargement des faits : {e}")
         raise

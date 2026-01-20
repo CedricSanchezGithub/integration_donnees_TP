@@ -27,7 +27,7 @@ def clean_data(df_raw: DataFrame) -> DataFrame:
     ) \
         .filter(col("code").isNotNull() & (col("code") != ""))
 
-    print(f"✅ {df_cleaned.count()} produits après nettoyage.")
+    print(f"✅ Nettoyage terminé.")
     return df_cleaned
 
 

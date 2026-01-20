@@ -38,7 +38,7 @@ def extract_data(spark: SparkSession, file_name: str = "openfoodfacts-products.j
         df = spark.read \
             .schema(get_jsonl_schema()) \
             .json(raw_path)
-        print(f"✅ {df.count()} lignes extraites avec succès.")
+        print(f"✅ Extraction réussie.")
         return df
     except Exception as e:
         print(f"❌ Erreur lors de l'extraction : {e}")
