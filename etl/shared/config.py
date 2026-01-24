@@ -21,10 +21,9 @@ MYSQL_CONFIG = {
     "database": "OFF",
     "url": "jdbc:mysql://localhost:3306/OFF",
     "user": "root",
-    "password": "rootpassword",
+    "password": "OFF",
     "driver": "com.mysql.cj.jdbc.Driver",
     "collation": "utf8mb4_general_ci"
 }
 
-DEV_MODE = True
 SAMPLE_FRACTION = 0.01

@@ -1,6 +1,7 @@
 from pyspark.sql import DataFrame, Window
 from pyspark.sql.functions import col, trim, from_unixtime, sha2, concat_ws, date_format, when, isnan, row_number
-from etl.shared.config import DEV_MODE, SAMPLE_FRACTION
+
+from etl.shared.config import SAMPLE_FRACTION
 
 
 def clean_data(df_raw: DataFrame) -> DataFrame:
@@ -8,9 +9,7 @@ def clean_data(df_raw: DataFrame) -> DataFrame:
 
     print("🧹 Nettoyage des données (Silver)...")
 
-    if DEV_MODE:
-        print(f"📊 Mode DEV: Échantillonnage de {SAMPLE_FRACTION * 100:.1f}% des données")
-        df_raw = df_raw.sample(withReplacement=False, fraction=SAMPLE_FRACTION, seed=42)
+    df_raw = df_raw.sample(withReplacement=False, fraction=SAMPLE_FRACTION, seed=42)
 
     df_clean = df_raw \
         .select(
