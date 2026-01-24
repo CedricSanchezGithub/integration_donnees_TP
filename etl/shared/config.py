@@ -18,10 +18,12 @@ SPARK_CONFIG = {
 }
 
 MYSQL_CONFIG = {
-    "url": "jdbc:mysql://localhost:3306/openfoodfacts",
+    "database": "OFF",
+    "url": "jdbc:mysql://localhost:3306/OFF",
     "user": "root",
-    "password": "root",
-    "driver": "com.mysql.cj.jdbc.Driver"
+    "password": "rootpassword",
+    "driver": "com.mysql.cj.jdbc.Driver",
+    "collation": "utf8mb4_general_ci"
 }
 
 DEV_MODE = True

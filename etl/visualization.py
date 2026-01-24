@@ -10,10 +10,8 @@ def visualize_input(df_spark: DataFrame):
     """Génère un graphique sur les données brutes (Input)."""
     print("🎨 Génération du graphique d'entrée (Distribution Nutri-Score)...")
 
-    # Agrégation Spark
     df_distrib = df_spark.groupBy("nutriscore_grade").count().toPandas()
 
-    # Nettoyage
     df_distrib = df_distrib[df_distrib["nutriscore_grade"].notnull()]
     df_distrib = df_distrib.sort_values("nutriscore_grade")
 
@@ -42,22 +40,28 @@ def visualize_output():
     """Génère un graphique analytique depuis MySQL (Output)."""
     print("🎨 Génération du graphique de sortie (Top 10 Marques Sucrées)...")
 
-    connection_string = f"mysql+mysqlconnector://{MYSQL_CONFIG['user']}:{MYSQL_CONFIG['password']}@localhost:3306/openfoodfacts"
+    collation = MYSQL_CONFIG.get("collation", "utf8mb4_general_ci")
+
+    connection_string = (
+        f"mysql+mysqlconnector://{MYSQL_CONFIG['user']}:{MYSQL_CONFIG['password']}"
+        f"@localhost:3306/{MYSQL_CONFIG['database']}"
+        f"?collation={collation}"
+    )
+
     engine = create_engine(connection_string)
 
     query = """
-            SELECT d.brands           as brand, \
-                   AVG(f.sugars_100g) as avg_sugar
+            SELECT d.brands as brand, AVG(f.sugars_100g) as avg_sugar
             FROM fact_nutrition_snapshot f
                      JOIN dim_product d ON f.product_sk = d.product_sk
             WHERE f.sugars_100g IS NOT NULL
               AND d.brands IS NOT NULL
               AND d.brands != ''
-      AND d.brands != 'nan'
+              AND d.brands != 'nan'
             GROUP BY d.brands
             HAVING COUNT(*) > 50
             ORDER BY avg_sugar DESC
-                LIMIT 10 \
+                LIMIT 10
             """
 
     try:
@@ -66,6 +70,7 @@ def visualize_output():
         if df_kpi.empty:
             print("⚠️ Pas assez de données en base (count > 50) pour le graphique de sortie.")
             print("   -> Tentative avec seuil réduit pour le mode DEV...")
+
             query_dev = query.replace("COUNT(*) > 50", "COUNT(*) > 5")
             df_kpi = pd.read_sql(query_dev, engine)
 

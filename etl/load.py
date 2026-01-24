@@ -17,9 +17,12 @@ def init_database(reset=False):
     for i in range(max_retries):
         try:
             conn = mysql.connector.connect(
-                host="localhost", port=3306,
-                user=MYSQL_CONFIG["user"], password=MYSQL_CONFIG["password"],
-                database="openfoodfacts"
+                host="localhost",
+                port=3306,
+                user=MYSQL_CONFIG["user"],
+                password=MYSQL_CONFIG["password"],
+                database=MYSQL_CONFIG["database"],
+                collation=MYSQL_CONFIG["collation"]
             )
             if conn.is_connected():
                 print("✅ Connexion MySQL établie.")
@@ -207,9 +210,11 @@ def _close_products_in_mysql(codes: list):
         return
 
     conn = mysql.connector.connect(
-        host="localhost", port=3306,
+        host="localhost",
+        port=3306,
         user=MYSQL_CONFIG["user"], password=MYSQL_CONFIG["password"],
-        database="openfoodfacts"
+        database=MYSQL_CONFIG["database"],
+        collation=MYSQL_CONFIG["collation"]
     )
     cursor = conn.cursor()
 
@@ -240,7 +245,7 @@ def _write_jdbc(df: DataFrame, table: str):
             "password": MYSQL_CONFIG["password"],
             "driver": MYSQL_CONFIG["driver"],
             "batchsize": "1000"
-        }
+        },
     )
 
 
