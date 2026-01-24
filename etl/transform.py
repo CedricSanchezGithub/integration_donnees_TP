@@ -1,5 +1,5 @@
 from pyspark.sql import DataFrame, Window
-from pyspark.sql.functions import col, trim, from_unixtime, sha2, concat_ws, date_format, when, isnan, row_number
+from pyspark.sql.functions import col, trim, from_unixtime, sha2, concat_ws, when, isnan, row_number, split, explode, date_format
 
 from etl.shared.config import SAMPLE_FRACTION
 
@@ -84,5 +84,46 @@ def prepare_fact_table(df_hashed: DataFrame, df_dim_products: DataFrame) -> Data
         col("energy_kcal_100g"),
         col("sugars_100g"),
         col("salt_100g"),
-        col("proteins_100g")
+        col("proteins_100g"),
+        col("additives_n"),
     )
+
+
+def extract_unique_categories(df_silver: DataFrame) -> DataFrame:
+    """
+    Extrait la liste unique des catégories depuis la colonne 'categories' (séparée par des virgules).
+    """
+    print("🧪 Extraction des catégories uniques...")
+
+    # 1. Split & Explode : "A, B" devient 2 lignes "A" et "B"
+    return df_silver.select(
+        explode(split(col("categories"), ",")).alias("category_name")
+    ) \
+        .select(trim(col("category_name")).alias("category_name")) \
+        .filter((col("category_name") != "") & (col("category_name").isNotNull())) \
+        .distinct()
+
+
+def prepare_bridge_table(df_silver: DataFrame, df_product_keys: DataFrame, df_category_keys: DataFrame) -> DataFrame:
+    """
+    Prépare les associations Product SK <-> Category SK.
+    """
+    print("🏗 Préparation de la table Bridge...")
+
+    # 1. Éclater les produits pour avoir (code, category_name)
+    df_exploded = df_silver.select(
+        col("code"),
+        explode(split(col("categories"), ",")).alias("category_name")
+    ).select(
+        col("code"),
+        trim(col("category_name")).alias("category_name")
+    ).filter((col("category_name") != "") & (col("category_name").isNotNull()))
+
+    # 2. Joindre pour avoir product_sk
+    df_with_pid = df_exploded.join(df_product_keys, on="code", how="inner")
+
+    # 3. Joindre pour avoir category_sk
+
+    df_final = df_with_pid.join(df_category_keys, on="category_name", how="inner")
+
+    return df_final.select("product_sk", "category_sk").distinct()

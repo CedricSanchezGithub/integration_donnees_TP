@@ -2,114 +2,223 @@ import time
 import mysql.connector
 from mysql.connector import Error
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import col, lit, current_timestamp
-from etl.shared.config import MYSQL_CONFIG
+from pyspark.sql.functions import col, lit
+from etl.shared.config import MARIADB_CONFIG
+from etl.shared.metrics import MetricsCollector
 
 
-def init_database(reset=False):
-    """Crée les tables (DDL) avec un mécanisme de Retry."""
-    print("🛠 Initialisation de la BDD...")
-
+# --- 1. FACTORISATION DE LA CONNEXION (NOUVEAU HELPER) ---
+def _get_db_connection():
+    """
+    Crée une connexion MySQL avec les bons paramètres et une logique de Retry automatique.
+    Centralise la config (collation, user, etc.).
+    """
     max_retries = 10
     delay = 5
-    conn = None
 
     for i in range(max_retries):
         try:
             conn = mysql.connector.connect(
                 host="localhost",
                 port=3306,
-                user=MYSQL_CONFIG["user"],
-                password=MYSQL_CONFIG["password"],
-                database=MYSQL_CONFIG["database"],
-                collation=MYSQL_CONFIG["collation"]
+                user=MARIADB_CONFIG["user"],
+                password=MARIADB_CONFIG["password"],
+                database=MARIADB_CONFIG["database"],
+                collation=MARIADB_CONFIG["collation"]
             )
             if conn.is_connected():
-                print("✅ Connexion MySQL établie.")
-                break
+                return conn
         except Error as e:
             if i == max_retries - 1:
-                print(f"❌ Impossible de se connecter après {max_retries} essais.")
+                print(f"❌ Erreur critique de connexion MySQL après {max_retries} essais.")
                 raise e
             print(f"⏳ MySQL indisponible ({e}). Nouvelle tentative dans {delay}s... ({i + 1}/{max_retries})")
             time.sleep(delay)
+    return None
 
+
+def init_database(reset=False):
+    """Crée les tables (DDL)."""
+    print("🛠 Initialisation de la BDD...")
+
+    # Appel simplifié grâce au helper
+    conn = _get_db_connection()
     cursor = conn.cursor()
 
-    # Tuning pour gros paquets
-    cursor.execute("SET GLOBAL max_allowed_packet=67108864")
+    try:
+        cursor.execute("SET GLOBAL max_allowed_packet=67108864")
 
-    # NOTE: En SCD2 réel, on NE DROP PAS les tables à chaque fois
-    if reset:
-        cursor.execute("DROP TABLE IF EXISTS fact_nutrition_snapshot")
-        cursor.execute("DROP TABLE IF EXISTS dim_product")
+        if reset:
+            tables_to_drop = [
+                "fact_nutrition_snapshot", "bridge_product_category",
+                "dim_category", "dim_product",
+                "staging_products_to_close", "staging_facts",
+                "staging_categories", "staging_bridge"
+            ]
+            for t in tables_to_drop:
+                cursor.execute(f"DROP TABLE IF EXISTS {t}")
+
+        # 1. DDL - Dimension Produit
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS dim_product
+                       (
+                           product_sk
+                           INT
+                           AUTO_INCREMENT
+                           PRIMARY
+                           KEY,
+                           code
+                           VARCHAR
+                       (
+                           255
+                       ) NOT NULL,
+                           product_name TEXT,
+                           brands TEXT,
+                           categories TEXT,
+                           row_hash CHAR
+                       (
+                           64
+                       ) NOT NULL,
+                           effective_from DATETIME,
+                           effective_to DATETIME,
+                           is_current BOOLEAN,
+                           INDEX idx_code
+                       (
+                           code
+                       ),
+                           INDEX idx_current
+                       (
+                           is_current
+                       )
+                           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                       """)
+
+        # 2. DDL - Dimension Catégorie
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS dim_category
+                       (
+                           category_sk
+                           INT
+                           AUTO_INCREMENT
+                           PRIMARY
+                           KEY,
+                           category_name
+                           VARCHAR
+                       (
+                           255
+                       ) NOT NULL,
+                           UNIQUE KEY idx_category_name
+                       (
+                           category_name
+                       )
+                           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                       """)
+
+        # 3. DDL - Bridge
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS bridge_product_category
+                       (
+                           product_sk
+                           INT
+                           NOT
+                           NULL,
+                           category_sk
+                           INT
+                           NOT
+                           NULL,
+                           PRIMARY
+                           KEY
+                       (
+                           product_sk,
+                           category_sk
+                       ),
+                           FOREIGN KEY
+                       (
+                           product_sk
+                       ) REFERENCES dim_product
+                       (
+                           product_sk
+                       ),
+                           FOREIGN KEY
+                       (
+                           category_sk
+                       ) REFERENCES dim_category
+                       (
+                           category_sk
+                       )
+                           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                       """)
+
+        # 4. DDL - Faits
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS fact_nutrition_snapshot
+                       (
+                           fact_sk
+                           INT
+                           AUTO_INCREMENT
+                           PRIMARY
+                           KEY,
+                           product_sk
+                           INT
+                           NOT
+                           NULL,
+                           date_sk
+                           INT
+                           NOT
+                           NULL,
+                           nutriscore_grade
+                           VARCHAR
+                       (
+                           50
+                       ),
+                           additives_n INT,
+                           ecoscore_grade VARCHAR
+                       (
+                           50
+                       ),
+                           nova_group INT,
+                           energy_kcal_100g FLOAT,
+                           sugars_100g FLOAT,
+                           salt_100g FLOAT,
+                           proteins_100g FLOAT,
+                           FOREIGN KEY
+                       (
+                           product_sk
+                       ) REFERENCES dim_product
+                       (
+                           product_sk
+                       ),
+                           UNIQUE KEY idx_unique_fact
+                       (
+                           product_sk,
+                           date_sk
+                       )
+                           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                       """)
+
+        print("✅ Tables initialisées.")
+
+    finally:
+        conn.close()
 
 
-# DDL - Dimension Produit
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS dim_product (
-            product_sk INT AUTO_INCREMENT PRIMARY KEY,
-            code VARCHAR(255) NOT NULL,
-            product_name TEXT,
-            brands TEXT,
-            categories TEXT,
-            row_hash CHAR(64) NOT NULL,
-            effective_from DATETIME,
-            effective_to DATETIME,
-            is_current BOOLEAN,
-            INDEX idx_code (code),
-            INDEX idx_current (is_current)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    """)
-
-    # DDL - Faits
-    cursor.execute("""
-       CREATE TABLE IF NOT EXISTS fact_nutrition_snapshot(
-           fact_sk INT AUTO_INCREMENT PRIMARY KEY,
-           product_sk INT NOT NULL,
-           date_sk INT NOT NULL,
-           nutriscore_grade VARCHAR(50),
-           additives_n INT, 
-           ecoscore_grade VARCHAR(50),
-           nova_group INT,
-           energy_kcal_100g FLOAT,
-           sugars_100g FLOAT,
-           salt_100g FLOAT,
-           proteins_100g FLOAT,
-           FOREIGN KEY (product_sk) REFERENCES dim_product (product_sk)
-       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-       """)
-    conn.close()
-
-
-def load_dimension_scd2(spark: SparkSession, df_source: DataFrame):
-    """
-    Gère le Slowly Changing Dimension Type 2 (SCD2).
-    Compare la source et la cible pour détecter les changements.
-    """
+def load_dimension_scd2(spark: SparkSession, df_source: DataFrame, metrics: MetricsCollector = None):
+    """Gère le SCD2."""
     print("🔄 Démarrage du processus SCD2...")
 
-    # 1. Charger les données ACTUELLES de MySQL (Target)
-    # On ne veut comparer qu'avec les produits actifs
     df_target = spark.read.format("jdbc") \
-        .option("url", MYSQL_CONFIG["url"]) \
+        .option("url", MARIADB_CONFIG["url"]) \
         .option("dbtable", "(SELECT code, row_hash as target_hash FROM dim_product WHERE is_current = 1) as t") \
-        .option("user", MYSQL_CONFIG["user"]) \
-        .option("password", MYSQL_CONFIG["password"]) \
-        .option("driver", MYSQL_CONFIG["driver"]) \
+        .option("user", MARIADB_CONFIG["user"]) \
+        .option("password", MARIADB_CONFIG["password"]) \
+        .option("driver", MARIADB_CONFIG["driver"]) \
         .load()
 
-    # 2. Comparaison (Diff)
-    # Left Join : On garde tout de la source, on matche avec la cible
     df_joined = df_source.join(df_target, on="code", how="left")
 
-    # Définition des cas
-    # Cas A : Nouveau produit (pas de correspondance dans Target)
     condition_new = col("target_hash").isNull()
-    # Cas B : Produit modifié (le hash a changé)
     condition_changed = col("target_hash") != col("row_hash")
 
-    # Produits à INSÉRER (Nouveaux + Modifiés)
     df_to_insert = df_joined.filter(condition_new | condition_changed) \
         .select(
         col("code"), col("product_name"), col("brands"), col("categories"),
@@ -119,104 +228,192 @@ def load_dimension_scd2(spark: SparkSession, df_source: DataFrame):
         lit(True).alias("is_current")
     )
 
-    # Produits à FERMER (Seulement ceux qui existaient et ont changé)
-    # Note : On ne ferme pas si c'est nouveau
     df_to_close = df_joined.filter(condition_changed).select("code")
 
     count_insert = df_to_insert.count()
     count_close = df_to_close.count()
 
-    print(f"📊 Analyse SCD2 : {count_insert} à insérer / {count_close} à fermer (mise à jour).")
+    print(f"📊 Analyse SCD2 : {count_insert} à insérer / {count_close} à fermer.")
 
-    # 3. Exécuter la fermeture (UPDATE SQL)
+    if metrics:
+        metrics.set_metric("dim_products_inserted", count_insert)
+        metrics.set_metric("dim_products_closed", count_close)
+
     if count_close > 0:
         print("🔒 Fermeture des anciennes versions...")
         try:
-            # On collecte les codes driver-side (OK pour volumes < 1M, sinon utiliser temp table)
-            codes_to_update = [row.code for row in df_to_close.collect()]
-            _close_products_in_mysql(codes_to_update)
-            print(f"✅ {count_close} versions fermées dans dim_product.")
+            _write_jdbc(df_to_close, "staging_products_to_close", mode="overwrite")
+            _close_products_via_staging()
         except Exception as e:
-            print(f"❌ Erreur lors de la fermeture des versions : {e}")
+            print(f"❌ Erreur fermeture : {e}")
             raise
 
-    # 4. Exécuter l'insertion (APPEND Spark)
     if count_insert > 0:
         print("🚀 Insertion des nouvelles versions...")
         try:
-            _write_jdbc(df_to_insert, "dim_product")
-            print(f"✅ {count_insert} enregistrements insérés dans dim_product.")
+            _write_jdbc(df_to_insert, "dim_product", mode="append")
         except Exception as e:
-            print(f"❌ Erreur lors de l'insertion dans dim_product : {e}")
+            print(f"❌ Erreur insertion : {e}")
             raise
-    else:
-        print("✅ Aucune modification détectée.")
 
 
-def load_facts(df: DataFrame):
-    """Charge la table de faits."""
+def load_facts(df: DataFrame, metrics: MetricsCollector = None):
+    """Charge la table de faits (Upsert)."""
     print("🚚 Chargement de fact_nutrition_snapshot...")
+
+    count = df.count()
+    if metrics:
+        metrics.set_metric("facts_loaded", count)
+
+    if count == 0:
+        return
+
     try:
-        _write_jdbc(df, "fact_nutrition_snapshot")
-        print(f"✅ Faits insérés dans fact_nutrition_snapshot.")
+        _write_jdbc(df, "staging_facts", mode="overwrite")
+        _upsert_facts_via_staging()
+        print(f"✅ {count} Faits traités.")
     except Exception as e:
-        print(f"❌ Erreur lors du chargement des faits : {e}")
+        print(f"❌ Erreur chargement faits : {e}")
         raise
 
 
-def _close_products_in_mysql(codes: list):
-    """Ferme les lignes obsolètes via une requête SQL brute."""
-    if not codes:
-        return
+def load_dim_categories(df: DataFrame):
+    """Charge les catégories uniques."""
+    print("📂 Chargement de dim_category...")
+    try:
+        _write_jdbc(df, "staging_categories", mode="overwrite")
+        _execute_sql_staging("""
+                             INSERT
+                             IGNORE INTO dim_category (category_name)
+                             SELECT DISTINCT category_name
+                             FROM staging_categories
+                             WHERE category_name IS NOT NULL
+                               AND category_name != ''
+                             """, "staging_categories")
+        print("✅ Catégories chargées.")
+    except Exception as e:
+        print(f"❌ Erreur catégories : {e}")
+        raise
 
-    conn = mysql.connector.connect(
-        host="localhost",
-        port=3306,
-        user=MYSQL_CONFIG["user"], password=MYSQL_CONFIG["password"],
-        database=MYSQL_CONFIG["database"],
-        collation=MYSQL_CONFIG["collation"]
-    )
+
+def load_bridge(df: DataFrame):
+    """Charge le Bridge."""
+    print("🔗 Chargement du Bridge...")
+    try:
+        _write_jdbc(df, "staging_bridge", mode="overwrite")
+        _execute_sql_staging("""
+                             INSERT
+                             IGNORE INTO bridge_product_category (product_sk, category_sk)
+                             SELECT product_sk, category_sk
+                             FROM staging_bridge
+                             """, "staging_bridge")
+        print("✅ Bridge chargé.")
+    except Exception as e:
+        print(f"❌ Erreur Bridge : {e}")
+        raise
+
+
+# --- HELPERS SIMPLIFIÉS ---
+
+def _execute_sql_staging(sql: str, staging_table_to_drop: str = None):
+    conn = _get_db_connection()  # Appel au helper unique
     cursor = conn.cursor()
-
-    batch_size = 1000
-    for i in range(0, len(codes), batch_size):
-        batch = codes[i:i + batch_size]
-        format_strings = ','.join(['%s'] * len(batch))
-
-        query = f"""
-            UPDATE dim_product 
-            SET is_current = 0, effective_to = NOW() 
-            WHERE is_current = 1 AND code IN ({format_strings})
-        """
-        cursor.execute(query, tuple(batch))
+    try:
+        cursor.execute(sql)
         conn.commit()
+        if staging_table_to_drop:
+            cursor.execute(f"DROP TABLE IF EXISTS {staging_table_to_drop}")
+            conn.commit()
+    finally:
+        conn.close()
 
-    conn.close()
+
+def _close_products_via_staging():
+    conn = _get_db_connection()  # Appel au helper unique
+    cursor = conn.cursor()
+    try:
+        query = """
+                UPDATE dim_product d
+                    JOIN staging_products_to_close s \
+                ON d.code = s.code
+                    SET d.is_current = 0, d.effective_to = NOW()
+                WHERE d.is_current = 1 \
+                """
+        cursor.execute(query)
+        conn.commit()
+        cursor.execute("DROP TABLE IF EXISTS staging_products_to_close")
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def _write_jdbc(df: DataFrame, table: str):
-    """Helper privé pour l'écriture JDBC."""
+def _upsert_facts_via_staging():
+    conn = _get_db_connection()  # Appel au helper unique
+    cursor = conn.cursor()
+    try:
+        query = """
+                INSERT INTO fact_nutrition_snapshot (product_sk, date_sk, nutriscore_grade, additives_n, \
+                                                     ecoscore_grade, nova_group, energy_kcal_100g, \
+                                                     sugars_100g, salt_100g, proteins_100g)
+                SELECT product_sk, \
+                       date_sk, \
+                       nutriscore_grade, \
+                       additives_n, \
+                       ecoscore_grade, \
+                       nova_group, \
+                       energy_kcal_100g, \
+                       sugars_100g, \
+                       salt_100g, \
+                       proteins_100g
+                FROM staging_facts ON DUPLICATE KEY \
+                UPDATE \
+                    nutriscore_grade = \
+                VALUES (nutriscore_grade), additives_n = \
+                VALUES (additives_n), ecoscore_grade = \
+                VALUES (ecoscore_grade), nova_group = \
+                VALUES (nova_group), energy_kcal_100g = \
+                VALUES (energy_kcal_100g), sugars_100g = \
+                VALUES (sugars_100g), salt_100g = \
+                VALUES (salt_100g), proteins_100g = \
+                VALUES (proteins_100g) \
+                """
+        cursor.execute(query)
+        conn.commit()
+        cursor.execute("DROP TABLE IF EXISTS staging_facts")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _write_jdbc(df: DataFrame, table: str, mode: str = "append"):
     df.write.jdbc(
-        url=MYSQL_CONFIG["url"],
+        url=MARIADB_CONFIG["url"],
         table=table,
-        mode="append",
+        mode=mode,
         properties={
-            "user": MYSQL_CONFIG["user"],
-            "password": MYSQL_CONFIG["password"],
-            "driver": MYSQL_CONFIG["driver"],
-            "batchsize": "1000"
+            "user": MARIADB_CONFIG["user"],
+            "password": MARIADB_CONFIG["password"],
+            "driver": MARIADB_CONFIG["driver"],
+            "batchsize": "5000"
         },
     )
 
 
 def fetch_product_keys(spark: SparkSession) -> DataFrame:
-    """Récupère le mapping code -> product_sk depuis MySQL."""
     return spark.read.format("jdbc") \
-        .option("url", MYSQL_CONFIG["url"]) \
+        .option("url", MARIADB_CONFIG["url"]) \
         .option("dbtable", "dim_product") \
-        .option("user", MYSQL_CONFIG["user"]) \
-        .option("password", MYSQL_CONFIG["password"]) \
-        .option("driver", MYSQL_CONFIG["driver"]) \
-        .load() \
-        .filter(col("is_current") == True) \
-        .select("product_sk", "code")
+        .option("user", MARIADB_CONFIG["user"]) \
+        .option("password", MARIADB_CONFIG["password"]) \
+        .option("driver", MARIADB_CONFIG["driver"]) \
+        .load().filter(col("is_current") == True).select("product_sk", "code")
+
+
+def fetch_category_keys(spark: SparkSession) -> DataFrame:
+    return spark.read.format("jdbc") \
+        .option("url", MARIADB_CONFIG["url"]) \
+        .option("dbtable", "dim_category") \
+        .option("user", MARIADB_CONFIG["user"]) \
+        .option("password", MARIADB_CONFIG["password"]) \
+        .option("driver", MARIADB_CONFIG["driver"]) \
+        .load()

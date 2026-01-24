@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from pyspark.sql import DataFrame
-from etl.shared.config import MYSQL_CONFIG
+from etl.shared.config import MARIADB_CONFIG
 from sqlalchemy import create_engine
 
 
@@ -40,11 +40,11 @@ def visualize_output():
     """Génère un graphique analytique depuis MySQL (Output)."""
     print("🎨 Génération du graphique de sortie (Top 10 Marques Sucrées)...")
 
-    collation = MYSQL_CONFIG.get("collation", "utf8mb4_general_ci")
+    collation = MARIADB_CONFIG.get("collation", "utf8mb4_general_ci")
 
     connection_string = (
-        f"mysql+mysqlconnector://{MYSQL_CONFIG['user']}:{MYSQL_CONFIG['password']}"
-        f"@localhost:3306/{MYSQL_CONFIG['database']}"
+        f"mysql+mysqlconnector://{MARIADB_CONFIG['user']}:{MARIADB_CONFIG['password']}"
+        f"@localhost:3306/{MARIADB_CONFIG['database']}"
         f"?collation={collation}"
     )
 
