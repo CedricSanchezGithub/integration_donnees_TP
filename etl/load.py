@@ -44,81 +44,41 @@ def init_database(reset=False):
         cursor.execute("DROP TABLE IF EXISTS fact_nutrition_snapshot")
         cursor.execute("DROP TABLE IF EXISTS dim_product")
 
-    # DDL - Dimension Produit
+
+# DDL - Dimension Produit
     cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS dim_product
-                   (
-                       product_sk
-                       INT
-                       AUTO_INCREMENT
-                       PRIMARY
-                       KEY,
-                       code
-                       VARCHAR
-                   (
-                       255
-                   ) NOT NULL,
-                       product_name TEXT,
-                       brands TEXT,
-                       categories TEXT,
-                       row_hash CHAR
-                   (
-                       64
-                   ) NOT NULL,
-                       effective_from DATETIME,
-                       effective_to DATETIME,
-                       is_current BOOLEAN,
-                       INDEX idx_code
-                   (
-                       code
-                   ),
-                       INDEX idx_current
-                   (
-                       is_current
-                   )
-                       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-                   """)
+        CREATE TABLE IF NOT EXISTS dim_product (
+            product_sk INT AUTO_INCREMENT PRIMARY KEY,
+            code VARCHAR(255) NOT NULL,
+            product_name TEXT,
+            brands TEXT,
+            categories TEXT,
+            row_hash CHAR(64) NOT NULL,
+            effective_from DATETIME,
+            effective_to DATETIME,
+            is_current BOOLEAN,
+            INDEX idx_code (code),
+            INDEX idx_current (is_current)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    """)
 
     # DDL - Faits
     cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS fact_nutrition_snapshot
-                   (
-                       fact_sk
-                       INT
-                       AUTO_INCREMENT
-                       PRIMARY
-                       KEY,
-                       product_sk
-                       INT
-                       NOT
-                       NULL,
-                       date_sk
-                       INT
-                       NOT
-                       NULL,
-                       nutriscore_grade
-                       VARCHAR
-                   (
-                       50
-                   ),
-                       ecoscore_grade VARCHAR
-                   (
-                       50
-                   ),
-                       nova_group INT,
-                       energy_kcal_100g FLOAT,
-                       sugars_100g FLOAT,
-                       salt_100g FLOAT,
-                       proteins_100g FLOAT,
-                       FOREIGN KEY
-                   (
-                       product_sk
-                   ) REFERENCES dim_product
-                   (
-                       product_sk
-                   )
-                       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-                   """)
+       CREATE TABLE IF NOT EXISTS fact_nutrition_snapshot(
+           fact_sk INT AUTO_INCREMENT PRIMARY KEY,
+           product_sk INT NOT NULL,
+           date_sk INT NOT NULL,
+           nutriscore_grade VARCHAR(50),
+           additives_n INT, 
+           ecoscore_grade VARCHAR(50),
+           nova_group INT,
+           energy_kcal_100g FLOAT,
+           sugars_100g FLOAT,
+           salt_100g FLOAT,
+           proteins_100g FLOAT,
+           FOREIGN KEY (product_sk) REFERENCES dim_product (product_sk)
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+       """)
     conn.close()
 
 

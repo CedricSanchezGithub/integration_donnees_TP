@@ -12,7 +12,7 @@ def main():
 
     try:
         spark = get_spark_session()
-        init_database()
+        init_database(True)
 
         # 1. Extraction
         df_raw = extract_data(spark)

@@ -28,7 +28,8 @@ def clean_data(df_raw: DataFrame) -> DataFrame:
         col("nutriments.energy-kcal_100g").alias("energy_kcal_100g"),
         col("nutriments.sugars_100g").alias("sugars_100g"),
         col("nutriments.salt_100g").alias("salt_100g"),
-        col("nutriments.proteins_100g").alias("proteins_100g")
+        col("nutriments.proteins_100g").alias("proteins_100g"),
+        col("additives_n").cast("integer").alias("additives_n"),
     ) \
         .filter(col("code").isNotNull() & (col("code") != ""))
 
@@ -48,7 +49,7 @@ def add_technical_hash(df_silver: DataFrame) -> DataFrame:
     columns_to_hash = [
         "product_name", "brands", "categories", "countries_tags",
         "nutriscore_grade", "nova_group", "ecoscore_grade",
-        "energy_kcal_100g", "sugars_100g", "salt_100g", "proteins_100g"
+        "energy_kcal_100g", "sugars_100g", "salt_100g", "proteins_100g", "additives_n",
     ]
 
     return df_silver.withColumn(
