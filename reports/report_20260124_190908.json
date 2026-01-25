@@ -1,0 +1,15 @@
+{
+    "run_id": "20260124_190908",
+    "timestamp": "2026-01-24T19:09:08.994768",
+    "status": "SUCCESS",
+    "duration_seconds": 369.52,
+    "metrics": {
+        "rows_read": 4247844,
+        "rows_filtered": 4205116,
+        "rows_processed": 42728,
+        "dim_products_inserted": 42728,
+        "dim_products_closed": 0,
+        "facts_loaded": 42728
+    },
+    "anomalies": []
+}

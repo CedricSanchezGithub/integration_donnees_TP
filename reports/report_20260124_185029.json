@@ -1,0 +1,21 @@
+{
+    "run_id": "20260124_185029",
+    "timestamp": "2026-01-24T18:50:29.058957",
+    "status": "FAILED",
+    "duration_seconds": 254.64,
+    "metrics": {
+        "rows_read": 4247844,
+        "rows_filtered": 4205116,
+        "rows_processed": 42728,
+        "dim_products_inserted": 0,
+        "dim_products_closed": 0,
+        "facts_loaded": 42728
+    },
+    "anomalies": [
+        {
+            "rule": "CRITICAL_FAILURE",
+            "description": "1273 (HY000): Unknown collation: 'utf8mb4_0900_ai_ci'",
+            "sample_id": null
+        }
+    ]
+}

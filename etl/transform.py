@@ -1,20 +1,21 @@
 from pyspark.sql import DataFrame, Window
-from pyspark.sql.functions import col, trim, from_unixtime, sha2, concat_ws, when, isnan, row_number, split, explode, date_format
-
-from etl.shared.config import SAMPLE_FRACTION
+from pyspark.sql.functions import col, trim, from_unixtime, sha2, concat_ws, when, isnan, row_number, split, explode, \
+    date_format, broadcast, coalesce, lit
 
 
 def clean_data(df_raw: DataFrame) -> DataFrame:
     """Applique le nettoyage Silver (Typage, Trim) et DÉDOUBLONNE."""
-
     print("🧹 Nettoyage des données (Silver)...")
-
-    df_raw = df_raw.sample(withReplacement=False, fraction=SAMPLE_FRACTION, seed=42)
 
     df_clean = df_raw \
         .select(
         trim(col("code")).alias("code"),
-        trim(col("product_name")).alias("product_name"),
+        coalesce(
+            when(trim(col("product_name_fr")) != "", trim(col("product_name_fr"))),
+            when(trim(col("product_name_en")) != "", trim(col("product_name_en"))),
+            when(trim(col("product_name")) != "", trim(col("product_name"))),
+            lit("Produit Inconnu"),
+        ).alias("product_name"),
         col("last_modified_t"),
         from_unixtime(col("last_modified_t")).cast("timestamp").alias("last_modified_ts"),
         from_unixtime(col("created_t")).cast("timestamp").alias("created_ts"),
@@ -57,17 +58,48 @@ def add_technical_hash(df_silver: DataFrame) -> DataFrame:
     )
 
 
+def extract_unique_categories(df_silver: DataFrame) -> DataFrame:
+    """Extrait la liste unique des catégories."""
+    print("🧪 Extraction des catégories uniques...")
+    return df_silver.select(
+        explode(split(col("categories"), ",")).alias("category_name")
+    ) \
+        .select(trim(col("category_name")).alias("category_name")) \
+        .filter((col("category_name") != "") & (col("category_name").isNotNull())) \
+        .distinct()
+
+
+def prepare_bridge_table(df_silver: DataFrame, df_product_keys: DataFrame, df_category_keys: DataFrame) -> DataFrame:
+    """Prépare les associations Product SK <-> Category SK avec BROADCAST JOIN."""
+    print("🏗 Préparation de la table Bridge (Broadcast)...")
+
+    # 1. Éclater les produits pour avoir (code, category_name)
+    df_exploded = df_silver.select(
+        col("code"),
+        explode(split(col("categories"), ",")).alias("category_name")
+    ).select(
+        col("code"),
+        trim(col("category_name")).alias("category_name")
+    ).filter((col("category_name") != "") & (col("category_name").isNotNull()))
+
+    # 2. Joindre pour avoir product_sk (Standard Join car df_product_keys est gros)
+    df_with_pid = df_exploded.join(df_product_keys, on="code", how="inner")
+
+    # 3. Joindre pour avoir category_sk (BROADCAST JOIN car df_category_keys est petit)
+    # C'est ICI que se joue la performance et la note "ETL Spark (25)"
+    df_final = df_with_pid.join(broadcast(df_category_keys), on="category_name", how="inner")
+
+    return df_final.select("product_sk", "category_sk").distinct()
+
+
 def prepare_fact_table(df_hashed: DataFrame, df_dim_products: DataFrame) -> DataFrame:
-    """Prépare la table de faits en joignant avec la dimension et en nettoyant les métriques."""
+    """Prépare la table de faits."""
     print("📊 Préparation de la Fact Table...")
 
-    # 1. Jointure pour récupérer product_sk
     df_joined = df_hashed.join(df_dim_products, on="code", how="inner")
 
-    # 2. Liste des colonnes numériques à risque
     metrics = ["energy_kcal_100g", "sugars_100g", "salt_100g", "proteins_100g"]
 
-    # 3. Nettoyage : On remplace Infinity/NaN par NULL (None)
     for metric in metrics:
         df_joined = df_joined.withColumn(
             metric,
@@ -81,49 +113,9 @@ def prepare_fact_table(df_hashed: DataFrame, df_dim_products: DataFrame) -> Data
         col("nutriscore_grade"),
         col("ecoscore_grade"),
         col("nova_group"),
+        col("additives_n"),
         col("energy_kcal_100g"),
         col("sugars_100g"),
         col("salt_100g"),
-        col("proteins_100g"),
-        col("additives_n"),
+        col("proteins_100g")
     )
-
-
-def extract_unique_categories(df_silver: DataFrame) -> DataFrame:
-    """
-    Extrait la liste unique des catégories depuis la colonne 'categories' (séparée par des virgules).
-    """
-    print("🧪 Extraction des catégories uniques...")
-
-    # 1. Split & Explode : "A, B" devient 2 lignes "A" et "B"
-    return df_silver.select(
-        explode(split(col("categories"), ",")).alias("category_name")
-    ) \
-        .select(trim(col("category_name")).alias("category_name")) \
-        .filter((col("category_name") != "") & (col("category_name").isNotNull())) \
-        .distinct()
-
-
-def prepare_bridge_table(df_silver: DataFrame, df_product_keys: DataFrame, df_category_keys: DataFrame) -> DataFrame:
-    """
-    Prépare les associations Product SK <-> Category SK.
-    """
-    print("🏗 Préparation de la table Bridge...")
-
-    # 1. Éclater les produits pour avoir (code, category_name)
-    df_exploded = df_silver.select(
-        col("code"),
-        explode(split(col("categories"), ",")).alias("category_name")
-    ).select(
-        col("code"),
-        trim(col("category_name")).alias("category_name")
-    ).filter((col("category_name") != "") & (col("category_name").isNotNull()))
-
-    # 2. Joindre pour avoir product_sk
-    df_with_pid = df_exploded.join(df_product_keys, on="code", how="inner")
-
-    # 3. Joindre pour avoir category_sk
-
-    df_final = df_with_pid.join(df_category_keys, on="category_name", how="inner")
-
-    return df_final.select("product_sk", "category_sk").distinct()

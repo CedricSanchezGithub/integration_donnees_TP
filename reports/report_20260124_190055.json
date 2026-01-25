@@ -1,0 +1,21 @@
+{
+    "run_id": "20260124_190055",
+    "timestamp": "2026-01-24T19:00:55.667441",
+    "status": "FAILED",
+    "duration_seconds": 2.58,
+    "metrics": {
+        "rows_read": 0,
+        "rows_filtered": 0,
+        "rows_processed": 0,
+        "dim_products_inserted": 0,
+        "dim_products_closed": 0,
+        "facts_loaded": 0
+    },
+    "anomalies": [
+        {
+            "rule": "CRITICAL_FAILURE",
+            "description": "name 'MYSQL_CONFIG' is not defined",
+            "sample_id": null
+        }
+    ]
+}

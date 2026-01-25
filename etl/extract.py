@@ -27,6 +27,8 @@ def get_jsonl_schema() -> StructType:
         StructField("ecoscore_grade", StringType(), True),
         StructField("nutriments", nutriments_schema, True),
         StructField("additives_n", IntegerType(), True),
+        StructField("product_name_fr", StringType(), True),
+        StructField("product_name_en", StringType(), True),
     ])
 
 

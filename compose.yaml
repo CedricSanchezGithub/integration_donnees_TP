@@ -1,26 +1,32 @@
-networks:
-  openfoodfacts-network:
-    driver: bridge
+version: '3.8'
 
 services:
-  mysql:
-    image: mysql:8.0.33-oracle
-    container_name: mysql-container
-    command: --default-authentication-plugin=mysql_native_password --bind-address=0.0.0.0
+  mariadb:
+    image: mariadb:10.11
+    container_name: mariadb-container
+    command: >
+      --bind-address=0.0.0.0
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --max-allowed-packet=64M
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: openfoodfacts
+      MARIADB_ROOT_PASSWORD: rootpassword
+      MARIADB_DATABASE: OFF
     ports:
       - "3306:3306"
     networks:
       - openfoodfacts-network
     volumes:
-      - mysql-data:/var/lib/mysql
+      - mariadb-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
       retries: 5
 
+networks:
+  openfoodfacts-network:
+    driver: bridge
+
 volumes:
-  mysql-data:
+  mariadb-data:
